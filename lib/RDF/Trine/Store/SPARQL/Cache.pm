@@ -7,6 +7,38 @@ package RDF::Trine::Store::SPARQL::Cache;
 our $AUTHORITY = 'cpan:KJETILK';
 our $VERSION   = '0.001';
 
+use base qw'RDF::Trine::Store::SPARQL';
+
+use RDF::Trine qw(iri);
+#use LWP::UserAgent::CHICaching;
+#my $cache = CHI->new( driver => 'Memory', global => 1 );
+
+#RDF::Trine::->default_useragent(LWP::UserAgent::CHICaching->new(cache => $cache));
+
+our %COUNTS;
+use RDF::Query;
+
+sub get_sparql {
+	my $self        = shift;
+	my $sparql      = shift;
+	my $query = RDF::Query->new($sparql);
+
+	my @triples = $query->pattern->subpatterns_of_type('RDF::Query::Algebra::Triple');
+
+	foreach my $triple (@triples) {
+		if ($triple->predicate->is_resource) {
+			$COUNTS{$triple->predicate->as_string}++;
+		}
+	}
+
+	while (my ($predicate, $count) = each(%COUNTS)) {
+		if ($count > 3) {
+			$self->SUPER::get_statements(undef, iri($predicate), undef); # Prefetch this into cache
+		}
+	}
+
+	return $self->SUPER::get_sparql($sparql);
+}
 1;
 
 __END__
