@@ -7,31 +7,55 @@ package RDF::Trine::Store::SPARQL::Cache;
 our $AUTHORITY = 'cpan:KJETILK';
 our $VERSION   = '0.001';
 
+
+use RDF::Trine qw(statement variable iri literal);
+use RDF::Query;
+use Digest::MD5 qw(md5_base64);
+
 use base qw'RDF::Trine::Store::SPARQL';
 
-use RDF::Trine qw(iri);
+
 #use LWP::UserAgent::CHICaching;
 #my $cache = CHI->new( driver => 'Memory', global => 1 );
 
 #RDF::Trine::->default_useragent(LWP::UserAgent::CHICaching->new(cache => $cache));
 
-our %COUNTS;
-use RDF::Query;
+
+sub new {
+	my ($class, $url, $rest) = @_;
+	my $self = $class->SUPER::new($url);
+	$self->{model} = $rest->{metadata_model} || RDF::Trine::Model->temporary_model;
+	return $self;
+}
+
+
 
 sub get_sparql {
-	my $self        = shift;
-	my $sparql      = shift;
-	my $query = RDF::Query->new($sparql);
-
+	my $self   = shift;
+	my $sparql = shift;
+	my $query  = RDF::Query->new($sparql);
+	my $co     = RDF::Trine::Namespace->new('http://purl.org/ontology/co/core#');
+	my $xsd    = RDF::Trine::Namespace->new('http://www.w3.org/2001/XMLSchema#');
 	my @triples = $query->pattern->subpatterns_of_type('RDF::Query::Algebra::Triple');
+	my %counts;
+	my %digests;
 
 	foreach my $triple (@triples) {
 		if ($triple->predicate->is_resource) {
-			$COUNTS{$triple->predicate->as_string}++;
+			my $pred = $triple->predicate->as_string;
+			$counts{$pred}++;
+			$digests{$pred} = md5_base64($pred) unless ($digests{$pred});
 		}
 	}
 
-	while (my ($predicate, $count) = each(%COUNTS)) {
+	while (my ($predicate, $count) = each(%counts)) {
+		my $graph = iri('urn:sparqlcache:graphname:' . $digests{$predicate});
+		my $iter = $self->{model}->get_statements($graph, $co->count, undef);
+		while (my $st = $iter->next) {
+			$count += $st->object->value; # Should die if there are more or not int
+			$self->{model}->remove_statement($st);
+		}
+		$self->{model}->add_statement(statement($graph, $co->count, literal($count, undef, $xsd->integer)));
 		if ($count > 3) {
 			$self->SUPER::get_statements(undef, iri($predicate), undef); # Prefetch this into cache
 		}
