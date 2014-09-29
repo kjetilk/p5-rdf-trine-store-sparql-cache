@@ -15,10 +15,10 @@ use Digest::MD5 qw(md5_base64);
 use base qw'RDF::Trine::Store::SPARQL';
 
 
-#use LWP::UserAgent::CHICaching;
-#my $cache = CHI->new( driver => 'Memory', global => 1 );
+use LWP::UserAgent::CHICaching;
+my $cache = CHI->new( driver => 'Memory', global => 1 );
 
-#RDF::Trine::->default_useragent(LWP::UserAgent::CHICaching->new(cache => $cache));
+RDF::Trine::->default_useragent(LWP::UserAgent::CHICaching->new(cache => $cache));
 
 
 sub new {
@@ -27,6 +27,22 @@ sub new {
 	$self->{model} = $rest->{metadata_model} || RDF::Trine::Model->temporary_model;
 	return $self;
 }
+
+sub get_statements {
+	my $self   = shift;
+	my @nodes  = @_[0..3];
+	my $digest = md5_base64($nodes[1]->as_string);
+	if ($cache->is_valid($digest)) {
+		# TODO: Check if the statement is exactly what we had
+		my $model = RDF::Trine::Model->temporary_model;
+		my $parser = RDF::Trine::Parser->new( 'turtle' ); # TODO: Record content-type
+		$parser->parse_into_model(undef, $cache->get($digest), $model);
+		return $model->get_statements(@nodes);
+	} else {
+		return $self->SUPER::get_statements(@nodes);
+	}
+}
+
 
 
 
