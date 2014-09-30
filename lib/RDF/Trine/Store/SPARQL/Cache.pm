@@ -43,6 +43,62 @@ sub get_statements {
 	}
 }
 
+sub get_pattern {
+	my $self        = shift;
+	my $bgp         = shift;
+	my $context     = shift;
+	my @args        = @_;
+	my %args        = @args;
+	my $dct        = RDF::Trine::Namespace->new('http://purl.org/dc/terms/');
+
+	if ($bgp->isa('RDF::Trine::Statement')) {
+		$bgp    = RDF::Trine::Pattern->new($bgp);
+	}
+	
+	bless($bgp, 'RDF::Trine::Pattern::CacheChecking');
+	
+	my @bgps = $bgp->subgroup;
+	
+	my $localmodel = RDF::Trine::Model->temporary_model;
+	
+   # Identify the triple patterns that are cached
+	# Decide evaluation order
+	my @patterns;
+	foreach my $pattern (@bgps) {
+		my @triples = $pattern->triples;
+		my %triples_by_tid;
+		foreach my $t (@triples) {
+			my $tid = refaddr($t);
+			$triples_by_tid{$tid}{'tid'} = $tid; # TODO: Worth doing this in an array?
+			$triples_by_tid{$tid}{'triple'} = $t;
+			my $digest = md5_base64($t->predicate->as_string);
+			if ($cache->is_valid($digest)) {
+				my $graph = iri('urn:sparqlcache:graphname:' . $digest);
+				my $iter = $self->{model}->get_statements($graph, $dct->extent, undef);
+				my $clenght = 0;
+				while (my $st = $iter->next) {
+					$clenght += $st->object->value; # Should die if there are more or not int
+				}
+				my $parser = RDF::Trine::Parser->new( 'turtle' ); # TODO: Record content-type
+				$parser->parse_into_model(undef, $cache->get($digest), $localmodel);
+				$triples_by_tid{$tid}{'sum'} = $clength;
+			} else {
+				$triples_by_tid{$tid}{'sum'} = RDF::Trine::Pattern::_hsp_heuristic_triple_sum($t); # TODO: Really nasty hack...
+			}
+			my @sorted_tids = sort { $a->{'sum'} <=> $b->{'sum'} } values(%triples_by_tid);
+			my @sorted_triples;
+			foreach my $entry (@sorted_tids) {
+				push(@sorted_triples, $triples_by_tid{$entry->{'tid'}}->{'triple'});
+			}
+			
+	}
+	
+
+
+	# Join the results
+}
+
+
 
 
 
